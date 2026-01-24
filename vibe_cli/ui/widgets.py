@@ -1,19 +1,23 @@
-from textual.widget import Widget
-from textual.widgets import Static
-from rich.console import RenderableType
-from rich.markdown import Markdown
-from rich.syntax import Syntax
-from rich.text import Text
-from rich.panel import Panel
-from rich.align import Align
+from __future__ import annotations
+
 from datetime import datetime
-from typing import Optional
 import math
 import random
-from textual.reactive import reactive
+
 from rich import box
-from .theme import COLORS, glitch_text
+from rich.align import Align
+from rich.console import RenderableType
+from rich.markdown import Markdown
+from rich.panel import Panel
+from rich.syntax import Syntax
+from rich.text import Text
+from textual.reactive import reactive
+from textual.widget import Widget
+from textual.widgets import Static
 import pygments.styles
+
+from .system_metrics import SystemMetricsProvider
+from .theme import COLORS, glitch_text
 
 # Register custom neon theme
 pygments.styles.STYLE_MAP["vibe_neon"] = "vibe_cli.ui.theme:VibeNeonStyle"
@@ -240,42 +244,78 @@ class AICoreAvatar(Widget):
 
 
 class SystemMonitor(Static):
-    """Pseudo-live system telemetry"""
+    """Live system telemetry"""
 
     cpu = reactive(0.0)
     ram = reactive(0.0)
-    vibe = reactive(0.8)
+    disk = reactive(0.0)
+    net_up_bps = reactive(0.0)
+    net_down_bps = reactive(0.0)
+    vram_used_mb = reactive(None)
+    vram_total_mb = reactive(None)
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._metrics = SystemMetricsProvider()
 
     def on_mount(self) -> None:
-        self.set_interval(1.5, self._update_metrics)
+        self.set_interval(1.0, self._schedule_update)
 
-    def _update_metrics(self) -> None:
-        # Simulate some jitter
-        self.cpu = max(0.1, min(0.9, self.cpu + random.uniform(-0.1, 0.1)))
-        self.ram = max(0.4, min(0.7, self.ram + random.uniform(-0.02, 0.02)))
-        self.vibe = max(0.6, min(1.0, self.vibe + random.uniform(-0.05, 0.05)))
+    def _schedule_update(self) -> None:
+        self.run_worker(self._update_metrics(), group="system-monitor")
+
+    async def _update_metrics(self) -> None:
+        snapshot = await self._metrics.sample()
+        self.cpu = snapshot.cpu / 100.0
+        self.ram = snapshot.ram / 100.0
+        self.disk = snapshot.disk / 100.0
+        self.net_up_bps = snapshot.net_up_bps
+        self.net_down_bps = snapshot.net_down_bps
+        self.vram_used_mb = snapshot.vram_used_mb
+        self.vram_total_mb = snapshot.vram_total_mb
         self.refresh()
 
     def render(self) -> RenderableType:
         def get_bar(val: float, color: str) -> str:
             width = 12
-            filled = int(val * width)
+            filled = int(max(0.0, min(1.0, val)) * width)
             bar = "█" * filled + "░" * (width - filled)
             return f"[{color}]{bar}[/]"
+
+        vram_line = ""
+        if self.vram_used_mb is not None and self.vram_total_mb:
+            vram_pct = self.vram_used_mb / self.vram_total_mb
+            vram_line = (
+                f"[dim]VRAM[/] {get_bar(vram_pct, COLORS['tertiary'])} "
+                f"[dim]{int(self.vram_used_mb)}/{int(self.vram_total_mb)}MB[/]"
+            )
 
         lines = [
             f"[dim]CPU [/] {get_bar(self.cpu, COLORS['primary'])} [dim]{int(self.cpu * 100)}%[/]",
             f"[dim]RAM [/] {get_bar(self.ram, COLORS['secondary'])} [dim]{int(self.ram * 100)}%[/]",
-            f"[dim]VIBE[/] {get_bar(self.vibe, COLORS['tertiary'])} [dim]{int(self.vibe * 100)}%[/]",
+            f"[dim]DISK[/] {get_bar(self.disk, COLORS['text_bright'])} [dim]{int(self.disk * 100)}%[/]",
+            f"[dim]NET [/] [dim]↑{_format_rate(self.net_up_bps)} ↓{_format_rate(self.net_down_bps)}[/]",
         ]
+        if vram_line:
+            lines.append(vram_line)
 
         return Panel(
             "\n".join(lines),
             title="TELEMETRY",
             border_style=COLORS["surface_light"],
             style=f"on {COLORS['surface']}",
-            box=box.HORIZONTALS,
+            box=box.SQUARE,
         )
+
+
+def _format_rate(bytes_per_sec: float) -> str:
+    units = ["B/s", "KB/s", "MB/s", "GB/s"]
+    value = max(bytes_per_sec, 0.0)
+    unit_idx = 0
+    while value >= 1024.0 and unit_idx < len(units) - 1:
+        value /= 1024.0
+        unit_idx += 1
+    return f"{value:.1f}{units[unit_idx]}"
 
 
 class PowerGauge(Widget):
@@ -393,14 +433,14 @@ class HyperChatBubble(Widget):
 
         elif self.role == "tool":
             header = f"[bold {COLORS['warning']}]⚡ SYS_EXEC[/] [dim]@{time_str}[/]"
-            content_render = Syntax(self.content, "bash", theme="vibe_neon")
+            content_render = self._render_tool_content()
 
             # Tool logs take full width (or centered)
             return Panel(
                 content_render,
                 title=header,
                 border_style=COLORS["warning"],
-                box=box.ASCII,  # Raw log feel
+                box=box.SQUARE,  # Minimal noise
                 padding=(0, 1),
                 style=f"on {COLORS['surface']}",
             )
@@ -416,6 +456,25 @@ class HyperChatBubble(Widget):
                 padding=(0, 1),
                 style=f"on {COLORS['surface']}",
             )
+
+    def _render_tool_content(self) -> RenderableType:
+        stripped = self.content.strip()
+        if stripped.startswith("{") or stripped.startswith("["):
+            language = "json"
+        elif "Traceback (most recent call last)" in self.content:
+            language = "python"
+        elif stripped.startswith("STDOUT:") or stripped.startswith("STDERR:"):
+            return Text(self.content, style=COLORS["text"])
+        else:
+            language = "text"
+
+        return Syntax(
+            self.content,
+            language,
+            theme="vibe_neon",
+            line_numbers=False,
+            word_wrap=True,
+        )
 
 
 class CommandHistory(Static):

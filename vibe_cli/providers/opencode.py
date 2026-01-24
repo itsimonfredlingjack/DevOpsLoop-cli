@@ -1,7 +1,7 @@
 """OpenCode CLI provider - routes through opencode for z.ai/GLM access."""
 
 import asyncio
-from typing import AsyncIterator, List, Optional
+from typing import AsyncIterator
 
 from vibe_cli.models.messages import Message, Role
 from vibe_cli.models.tools import ToolDefinition
@@ -16,8 +16,8 @@ class OpenCodeProvider(LLMProvider):
 
     async def complete(
         self,
-        messages: List[Message],
-        tools: Optional[List[ToolDefinition]] = None,
+        messages: list[Message],
+        tools: list[ToolDefinition] | None = None,
         temperature: float = 0.7,
     ) -> AsyncIterator[StreamChunk]:
         # Build the prompt from messages

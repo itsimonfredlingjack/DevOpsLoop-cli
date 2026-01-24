@@ -1,8 +1,10 @@
 # vibe_cli/ui/app.py
 
+import asyncio
 import logging
 from pathlib import Path
 
+import aiofiles
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Vertical, ScrollableContainer
@@ -10,8 +12,9 @@ from textual.widgets import Input, Static
 
 from vibe_cli.agent.loop import AgentLoop
 from vibe_cli.config import Config, AgentConfig
-from vibe_cli.providers.openai_compat import OpenAICompatProvider
+from vibe_cli.providers.factory import build_provider
 from vibe_cli.tools.base import ToolRegistry
+from vibe_cli.tools.cloud import AWSResourceLister, K8sLogFetcher
 from vibe_cli.tools.filesystem import ReadFileTool, WriteFileTool, StrReplaceTool
 from vibe_cli.tools.git import GitStatusTool, GitAddTool, GitCommitTool
 from vibe_cli.tools.shell import ShellTool
@@ -26,6 +29,7 @@ from .widgets import (
     ShortcutsPanel,
     SystemMonitor,
 )
+from .project_tree import FilePinMessage, PinnedFilesPanel, ProjectTree
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +89,11 @@ class VibeApp(App):
         border-right: heavy $primary;
         height: 100%;
         padding: 1;
+        scrollbar-gutter: stable;
+    }
+
+    #sidebar-content {
+        height: auto;
     }
 
     /* Chat Area (Main) */
@@ -143,6 +152,22 @@ class VibeApp(App):
         margin-bottom: 1;
     }
 
+    /* Project Tree */
+    #project-tree {
+        height: auto;
+        min-height: 8;
+        border: solid $surface_light;
+        padding: 0 1;
+    }
+
+    /* Pinned Files */
+    PinnedFilesPanel {
+        height: auto;
+        margin-top: 1;
+        border: solid $surface_light;
+        padding: 0 1;
+    }
+
     /* StatusBar */
     StatusBar {
         background: $surface;
@@ -171,6 +196,12 @@ class VibeApp(App):
         margin-top: 1;
     }
 
+    /* CommandHistory */
+    CommandHistory {
+        height: auto;
+        margin-top: 1;
+    }
+
     /* ShortcutsPanel Overlay */
     #shortcuts-panel {
         dock: bottom;
@@ -181,37 +212,57 @@ class VibeApp(App):
     #shortcuts-panel.visible {
         display: block;
     }
+
+    /* Zen mode */
+    Screen.zen #header-area {
+        display: none;
+    }
+    Screen.zen #sidebar {
+        display: none;
+    }
+    Screen.zen #chat-area {
+        margin-left: 0;
+    }
+    Screen.zen #chat-view {
+        padding: 0 1;
+    }
     """
     )
 
     BINDINGS = [
         Binding("ctrl+c", "quit", "Quit"),
         Binding("question_mark", "toggle_help", "Help", key_display="?"),
+        Binding("ctrl+z", "toggle_zen", "Zen"),
     ]
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.workspace = Path.cwd()
         self.config = Config.load()
-        self.tools = ToolRegistry()
+        self.pinned_files: set[Path] = set()
+        self.tools = ToolRegistry(load_plugins=False)
         self.tools.register(ReadFileTool(self.workspace))
         self.tools.register(WriteFileTool(self.workspace))
         self.tools.register(StrReplaceTool(self.workspace))
         self.tools.register(GitStatusTool(self.workspace))
         self.tools.register(GitAddTool(self.workspace))
         self.tools.register(GitCommitTool(self.workspace))
+        self.tools.register(AWSResourceLister())
+        self.tools.register(K8sLogFetcher())
         self.tools.register(ShellTool(self.workspace, allowed_commands=self.config.shell.allowed))
 
         provider_cfg = self.config.providers.get(self.config.default_provider)
-        self.provider = OpenAICompatProvider(
-            base_url=provider_cfg.base_url if provider_cfg else "http://localhost:8080/v1",
-            api_key=provider_cfg.api_key if provider_cfg else "",
-            model=provider_cfg.model if provider_cfg else "phi-4",
-        )
+        self.provider = build_provider(provider_cfg)
         self.agent = AgentLoop(self.provider, self.tools, AgentConfig())
 
     def on_mount(self) -> None:
         self.set_interval(10.0, self._poll_models)
+        status_bar = self.query_one("#status-bar", StatusBar)
+        status_bar.model_name = self.provider.model
+        self.run_worker(self._load_plugins(), group="plugins")
+
+    async def _load_plugins(self) -> None:
+        await asyncio.to_thread(self.tools.register_plugins, self.workspace)
 
     async def _poll_models(self) -> None:
         """Poll for active models"""
@@ -221,8 +272,10 @@ class VibeApp(App):
                 # Update if different (taking the first one as active)
                 new_model = models[0]
                 avatar = self.query_one("#avatar", AICoreAvatar)
+                status_bar = self.query_one("#status-bar", StatusBar)
                 if avatar.model != new_model:
                     avatar.model = new_model
+                    status_bar.model_name = new_model
         except Exception:
             pass  # Silent fail on polling errors
 
@@ -234,12 +287,17 @@ class VibeApp(App):
 
         with Container(id="layout-root"):
             # 2. Sidebar (AI Core)
-            with Vertical(id="sidebar"):
-                avatar = AICoreAvatar(id="avatar")
-                avatar.model = self.provider.model
-                yield Container(avatar, id="avatar-container")
-                yield SystemMonitor(id="system-monitor")
-                yield CommandHistory(id="cmd-history")
+            with ScrollableContainer(id="sidebar"):
+                with Vertical(id="sidebar-content"):
+                    avatar = AICoreAvatar(id="avatar")
+                    avatar.model = self.provider.model
+                    yield Container(avatar, id="avatar-container")
+                    yield Static("PROJECT", classes="section-label")
+                    yield ProjectTree(self.workspace, id="project-tree")
+                    yield Static("PINNED", classes="section-label")
+                    yield PinnedFilesPanel(id="pinned-files")
+                    yield SystemMonitor(id="system-monitor")
+                    yield CommandHistory(id="cmd-history")
 
             # 3. Main Chat View
             with Vertical(id="chat-area"):
@@ -284,9 +342,10 @@ class VibeApp(App):
         status_bar.status = "processing"
 
         # start_time = time.time()
+        agent_input = await self._inject_pinned_context(text)
 
         try:
-            async for chunk in self.agent.run(text):
+            async for chunk in self.agent.run(agent_input):
                 if hasattr(chunk, "text") and chunk.text:
                     chat.stream_append(chunk.text)
                 elif hasattr(chunk, "tool_name") and chunk.tool_name:
@@ -313,6 +372,56 @@ class VibeApp(App):
         """Toggle the shortcuts help panel visibility"""
         panel = self.query_one("#shortcuts-panel", ShortcutsPanel)
         panel.toggle_class("visible")
+
+    def action_toggle_zen(self) -> None:
+        """Toggle Zen mode to focus on chat/code"""
+        self.screen.toggle_class("zen")
+
+    async def on_file_pin_message(self, message: FilePinMessage) -> None:
+        path = message.path
+        if not str(path.resolve()).startswith(str(self.workspace.resolve())):
+            return
+        rel = path.relative_to(self.workspace)
+        if rel in self.pinned_files:
+            self.pinned_files.remove(rel)
+        else:
+            self.pinned_files.add(rel)
+        panel = self.query_one("#pinned-files", PinnedFilesPanel)
+        panel.set_pins(sorted(self.pinned_files))
+
+    async def _inject_pinned_context(self, text: str) -> str:
+        if not self.pinned_files:
+            return text
+
+        blocks: list[str] = []
+        total_chars = 0
+        max_total = 20000
+        max_per_file = 6000
+
+        for rel_path in sorted(self.pinned_files):
+            path = self.workspace / rel_path
+            try:
+                async with aiofiles.open(path, "r") as f:
+                    content = await f.read(max_per_file + 1)
+            except Exception:
+                continue
+
+            truncated = ""
+            if len(content) > max_per_file:
+                content = content[:max_per_file]
+                truncated = "\n[...truncated]\n"
+
+            block = f"## Pinned: {rel_path}\n{content}{truncated}\n"
+            if total_chars + len(block) > max_total:
+                break
+            blocks.append(block)
+            total_chars += len(block)
+
+        if not blocks:
+            return text
+
+        context = "\n".join(blocks)
+        return f"{text}\n\n---\nPinned context:\n{context}"
 
 
 if __name__ == "__main__":

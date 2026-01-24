@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Dict, Literal, Optional
+from typing import Literal
 
 import platformdirs
 import tomli
@@ -7,11 +7,26 @@ from pydantic import BaseModel, Field
 
 
 class ProviderConfig(BaseModel):
-    type: Literal["openai", "opencode"] = "openai"
+    type: Literal["openai", "opencode", "ollama"] = "openai"
     api_key: str = ""
     model: str
     max_tokens: int = 4096
-    base_url: Optional[str] = None
+    base_url: str | None = None
+    auto_switch: bool = False
+    small_model: str | None = None
+    large_model: str | None = None
+    switch_tokens: int = 2000
+    switch_keywords: list[str] = Field(
+        default_factory=lambda: [
+            "complex",
+            "architecture",
+            "refactor",
+            "debug",
+            "performance",
+            "benchmark",
+        ],
+    )
+    keep_alive: int | None = 0
 
 class UIConfig(BaseModel):
     theme: str = "dark"
@@ -33,7 +48,7 @@ class Config(BaseModel):
     ui: UIConfig = Field(default_factory=UIConfig)
     context: ContextConfig = Field(default_factory=ContextConfig)
     shell: ShellConfig = Field(default_factory=ShellConfig)
-    providers: Dict[str, ProviderConfig] = Field(default_factory=dict)
+    providers: dict[str, ProviderConfig] = Field(default_factory=dict)
     default_provider: str = "local"
 
     @classmethod
@@ -54,4 +69,3 @@ class AgentConfig(BaseModel):
     max_iterations: int = 20
     require_confirmation: bool = True
     auto_checkpoint: bool = True
-
