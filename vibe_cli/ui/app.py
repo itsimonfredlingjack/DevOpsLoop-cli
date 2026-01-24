@@ -3,12 +3,12 @@
 from pathlib import Path
 import logging
 from textual.app import App, ComposeResult
-from textual.containers import Container, Vertical, Horizontal, ScrollableContainer
-from textual.widgets import Input, Static, Label
+from textual.containers import Container, Vertical, ScrollableContainer
+from textual.widgets import Input, Static
 from textual.binding import Binding
 
 from .theme import CSS_VARS
-from .widgets import HyperChatBubble, AICoreAvatar, StatusBar, PowerGauge, SystemBanner, CommandHistory, ShortcutsPanel
+from .widgets import HyperChatBubble, AICoreAvatar, StatusBar, SystemBanner, CommandHistory, ShortcutsPanel
 
 from vibe_cli.agent.loop import AgentLoop
 from vibe_cli.providers.openai_compat import OpenAICompatProvider
@@ -71,13 +71,13 @@ class VibeApp(App):
     /* Sidebar (Left) */
     #sidebar {
         dock: left;
-        width: 32;
+        width: 26;
         background: $surface;
         border-right: heavy $primary;
         height: 100%;
         padding: 1;
     }
-    
+
     /* Chat Area (Main) */
     #chat-area {
         height: 100%;
@@ -111,7 +111,7 @@ class VibeApp(App):
     /* === Widget Specifics === */
 
     #avatar-container {
-        height: 14;
+        height: 10;
         margin-bottom: 2;
     }
     
@@ -205,21 +205,6 @@ class VibeApp(App):
             # 2. Sidebar (AI Core)
             with Vertical(id="sidebar"):
                 yield Container(AICoreAvatar(id="avatar"), id="avatar-container")
-
-                yield Label("- SYSTEM VITALS -", classes="section-label")
-
-                with Horizontal(id="gauges-container"):
-                    token_gauge = PowerGauge()
-                    token_gauge.label = "CTX"
-                    token_gauge.id = "gauge-ctx"
-
-                    latency_gauge = PowerGauge()
-                    latency_gauge.label = "LAT"
-                    latency_gauge.id = "gauge-lat"
-
-                    yield token_gauge
-                    yield latency_gauge
-
                 yield CommandHistory(id="cmd-history")
 
             # 3. Main Chat View
@@ -259,8 +244,6 @@ class VibeApp(App):
         avatar = self.query_one("#avatar", AICoreAvatar)
         status_bar = self.query_one("#status-bar", StatusBar)
         cmd_history = self.query_one("#cmd-history", CommandHistory)
-        gauge_ctx = self.query_one("#gauge-ctx", PowerGauge)
-        gauge_lat = self.query_one("#gauge-lat", PowerGauge)
 
         chat.add_message("assistant", "")
         avatar.state = "thinking"
@@ -269,7 +252,6 @@ class VibeApp(App):
         import time
 
         start_time = time.time()
-        tokens_seen = 0
 
         try:
             async for chunk in self.agent.run(text):
@@ -282,14 +264,8 @@ class VibeApp(App):
                     avatar.state = "coding"
                     chat.add_message("tool", chunk.content)
                     chat.add_message("assistant", "")
-                elif hasattr(chunk, "usage"):
-                    tokens_seen = chunk.usage.get("total_tokens", 0)
-                    # Normalize to 0-1 for gauge (assuming 4k context)
-                    gauge_ctx.level = min(1.0, tokens_seen / 4096)
 
-            latency = time.time() - start_time
-            # Normalize latency (0-5s)
-            gauge_lat.level = min(1.0, latency / 5.0)
+            # latency = time.time() - start_time
 
             avatar.state = "success"
             status_bar.status = "ready"

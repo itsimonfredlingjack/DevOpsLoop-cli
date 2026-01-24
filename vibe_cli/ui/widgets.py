@@ -128,7 +128,7 @@ class AICoreAvatar(Widget):
 
     def render(self) -> RenderableType:
         # Generate a 3D-ish sphere using density characters
-        width, height = 24, 12
+        width, height = 18, 9  # Slimmer profile
         output_lines = []
 
         center_x, center_y = width / 2, height / 2
@@ -201,9 +201,9 @@ class AICoreAvatar(Widget):
 
         # Build title with animated ring effect
         if self.state in ("thinking", "coding"):
-            title = f"[{ring_style} {ring_color}]{ring_char}[/] CORE_DUMP [{ring_style} {ring_color}]{ring_char}[/]"
+            title = f"[{ring_style} {ring_color}]{ring_char}[/] CORE [{ring_style} {ring_color}]{ring_char}[/]"
         else:
-            title = f"[{ring_color}]●[/] CORE_DUMP [{ring_color}]●[/]"
+            title = f"[{ring_color}]●[/] CORE [{ring_color}]●[/]"
 
         art = "\n".join(output_lines)
         return Panel(
@@ -357,13 +357,13 @@ class CommandHistory(Static):
                 icon, color = self._get_status_icon(status)
                 if i > 0:
                     text.append("\n")
-                text.append("  ▸ ", style="dim")
-                text.append(f"{name[:12]:<12} ")
+                text.append(" ▸ ", style="dim")
+                text.append(f"{name[:8]:<8} ")  # Shorter truncation
                 text.append(icon, style=color)
 
         return Panel(
             text,
-            title="EXEC_LOG",
+            title="LOG",
             border_style=COLORS["surface_light"],
             style=f"on {COLORS['surface']}",
         )
