@@ -111,7 +111,7 @@ class VibeApp(App):
     /* === Widget Specifics === */
 
     #avatar-container {
-        height: 12;
+        height: 10;
         margin-bottom: 1;
     }
     
