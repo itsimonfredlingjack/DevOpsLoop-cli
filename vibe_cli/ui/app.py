@@ -95,7 +95,7 @@ class VibeApp(App):
     #input-container {
         dock: bottom;
         height: auto;
-        border-top: heavy $secondary;
+        border-top: double $secondary;
         background: $surface;
         padding: 1 2;
     }

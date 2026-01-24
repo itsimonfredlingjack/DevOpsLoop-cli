@@ -13,7 +13,8 @@ import math
 import random
 from textual.reactive import reactive
 from rich import box
-from .theme import COLORS, VibeNeonStyle, TECH, SCANLINE, glitch_text
+from rich import box
+from .theme import COLORS, VibeNeonStyle, TECH, glitch_text
 import pygments.styles
 
 # Register custom neon theme
@@ -212,7 +213,7 @@ class AICoreAvatar(Widget):
             title=title,
             border_style=f"{ring_style} {ring_color}".strip(),
             style=f"on {COLORS['bg']}",
-            box=SCANLINE,
+            box=box.DOUBLE,
         )
 
 
@@ -367,6 +368,7 @@ class CommandHistory(Static):
             title="LOG",
             border_style=COLORS["surface_light"],
             style=f"on {COLORS['surface']}",
+            box=box.DOUBLE,
         )
 
     def _get_status_icon(self, status: str) -> tuple[str, str]:
