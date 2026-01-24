@@ -84,7 +84,8 @@ from pygments.style import Style as PygmentsStyle
 from pygments.token import Keyword, Name, Comment, String, Error, Number, Operator, Generic
 
 # Custom "Glitch" Box using density characters
-GLITCH = Box("░▒▒░\n░▒▒░\n░▒▒░\n░▒▒░\n░▒▒░\n░▒▒░\n░▒▒░\n░▒▒░\n")
+# Refined "Thin Glitch" - Elegant, sharp, but signal-degraded
+GLITCH = Box("─░─╌\n─░─╌\n─░─╌\n─░─╌\n│\n│\n╌\n╌\n")
 
 
 class VibeNeonStyle(PygmentsStyle):
