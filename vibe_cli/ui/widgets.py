@@ -13,7 +13,7 @@ import math
 import random
 from textual.reactive import reactive
 from rich import box
-from .theme import COLORS, VibeNeonStyle
+from .theme import COLORS, VibeNeonStyle, TECH, glitch_text
 import pygments.styles
 
 # Register custom neon theme
@@ -280,7 +280,9 @@ class HyperChatBubble(Widget):
             return Align.right(panel)
 
         elif self.role == "assistant":
-            header = f"[bold {COLORS['secondary']}]◈ AI_CORE[/]"
+            # Glitched title for vibrant AI feel
+            title_text = glitch_text("DevOps Agent", intensity=0.1)
+            header = f"[bold {COLORS['secondary']}]◈ {title_text}[/]"
             content_render = Markdown(self.content)
 
             panel = Panel(
@@ -290,7 +292,7 @@ class HyperChatBubble(Widget):
                 subtitle=f"[dim]@{time_str}[/]",
                 subtitle_align="left",
                 border_style=COLORS["secondary"],
-                box=box.ROUNDED,  # Clean rounded borders
+                box=TECH,  # Schematic tech box
                 padding=(0, 1),
                 style=f"on {COLORS['surface']}",  # Glassy bg
                 width=60,  # Fixed width for readability

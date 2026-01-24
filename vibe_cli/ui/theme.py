@@ -3,6 +3,7 @@
 from rich.style import Style
 from rich.text import Text
 from typing import List, Tuple
+import random
 
 COLORS = {
     # Soft Pastel Palette
@@ -86,6 +87,23 @@ from pygments.token import Keyword, Name, Comment, String, Error, Number, Operat
 # Custom "Glitch" Box using density characters
 # Refined "Thin Glitch" - Elegant, sharp, but signal-degraded
 GLITCH = Box("─░─╌\n─░─╌\n─░─╌\n─░─╌\n│░│╌\n│░│╌\n─░─╌\n─░─╌\n")
+
+# Tech Schematic Box
+TECH = Box("┌─┬┐\n├─┼┤\n├─┼┤\n└─┴┘\n│ │ \n│ │ \n├─┼┤\n├─┼┤\n")
+
+
+def glitch_text(text: str, intensity: float = 0.1) -> str:
+    """Adds Zalgo-like glitch effects to text"""
+    # Combining diacritics
+    chars = [chr(i) for i in range(0x0300, 0x036F)]
+    output = ""
+    for char in text:
+        output += char
+        # Randomly append diacritics
+        if random.random() < intensity:
+            for _ in range(random.randint(1, 3)):
+                output += random.choice(chars)
+    return output
 
 
 class VibeNeonStyle(PygmentsStyle):
