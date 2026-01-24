@@ -128,7 +128,7 @@ class AICoreAvatar(Widget):
 
     def render(self) -> RenderableType:
         # Generate a 3D-ish sphere using density characters
-        width, height = 18, 9  # Slimmer profile
+        width, height = 16, 8  # Perfect fit for 24-col sidebar
         output_lines = []
 
         center_x, center_y = width / 2, height / 2
