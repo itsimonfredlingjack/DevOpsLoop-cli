@@ -13,7 +13,7 @@ import math
 import random
 from textual.reactive import reactive
 from rich import box
-from .theme import COLORS, VibeNeonStyle, TECH, glitch_text
+from .theme import COLORS, VibeNeonStyle, TECH, SCANLINE, glitch_text
 import pygments.styles
 
 # Register custom neon theme
@@ -212,7 +212,7 @@ class AICoreAvatar(Widget):
             title=title,
             border_style=f"{ring_style} {ring_color}".strip(),
             style=f"on {COLORS['bg']}",
-            box=box.DOUBLE,
+            box=SCANLINE,
         )
 
 
